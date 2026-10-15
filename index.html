@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Urban Air Quality Monitor</title>
+  <meta name="description" content="Real-time urban air quality monitoring dashboard — PM1, PM2.5, PM10, temperature, humidity and GPS location from your ESP32 sensor network." />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ═══════════════════════ SIDEBAR ═══════════════════════ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+        </svg>
+      </div>
+      <span class="logo-text">AirWatch</span>
+    </div>
+    <button class="sidebar-close" id="sidebarClose" aria-label="Close sidebar">✕</button>
+  </div>
+
+  <nav class="sidebar-nav">
+    <div class="nav-section-label">MONITORING</div>
+    <a href="#overview" class="nav-item active" id="nav-overview">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      Dashboard
+    </a>
+    <a href="#history" class="nav-item" id="nav-history">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      History
+    </a>
+    <a href="#map" class="nav-item" id="nav-map">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+      Map
+    </a>
+
+    <div class="nav-section-label">SETTINGS</div>
+    <a href="#alerts" class="nav-item" id="nav-alerts">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+      Alerts
+    </a>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="device-status-badge" id="deviceStatusBadge">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusLabel">Checking…</span>
+    </div>
+    <div class="last-updated" id="lastUpdated">—</div>
+  </div>
+</aside>
+
+<!-- ═══════════════════════ TOPBAR ═══════════════════════ -->
+<header class="topbar">
+  <button class="hamburger" id="hamburger" aria-label="Open sidebar">
+    <span></span><span></span><span></span>
+  </button>
+  <div class="topbar-title">Urban Air Quality Monitor</div>
+  <div class="topbar-right">
+    <div class="refresh-indicator" id="refreshIndicator" title="Auto-refreshing every 5 s">
+      <span class="refresh-dot"></span> Live
+    </div>
+    <button class="btn-icon" id="refreshBtn" title="Refresh now" aria-label="Refresh data">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="23 4 23 10 17 10"/>
+        <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<!-- ═══════════════════════ MAIN CONTENT ═══════════════════════ -->
+<main class="main-content" id="mainContent">
+
+  <!-- Connection-lost banner -->
+  <div class="banner banner-error" id="connectionBanner" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    Cannot reach backend API. Showing last known data.
+  </div>
+
+  <!-- ──── OVERVIEW SECTION ──── -->
+  <section class="section active" id="section-overview">
+    <div class="section-header">
+      <h1 class="section-title">Dashboard</h1>
+      <div class="breadcrumb">Overview / Live Readings</div>
+    </div>
+
+    <!-- AQI Hero -->
+    <div class="aqi-hero" id="aqiHero">
+      <div class="aqi-hero-left">
+        <div class="aqi-label">Air Quality Index</div>
+        <div class="aqi-value" id="aqiValue">—</div>
+        <div class="aqi-category" id="aqiCategory">Calculating…</div>
+        <div class="aqi-note">US EPA PM2.5 standard</div>
+      </div>
+      <div class="aqi-hero-right">
+        <canvas id="aqiGauge" width="160" height="160"></canvas>
+      </div>
+    </div>
+
+    <!-- Sensor cards row -->
+    <div class="cards-grid" id="cardsGrid">
+      <!-- PM cards -->
+      <div class="card card--pm" id="card-pm1">
+        <div class="card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/></svg>
+        </div>
+        <div class="card-body">
+          <div class="card-title">PM<sub>1.0</sub></div>
+          <div class="card-value" id="pm1Value">—</div>
+          <div class="card-unit">µg/m³</div>
+        </div>
+        <div class="card-trend" id="pm1Trend"></div>
+      </div>
+
+      <div class="card card--pm card--primary" id="card-pm25">
+        <div class="card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/></svg>
+        </div>
+        <div class="card-body">
+          <div class="card-title">PM<sub>2.5</sub></div>
+          <div class="card-value" id="pm25Value">—</div>
+          <div class="card-unit">µg/m³</div>
+        </div>
+        <div class="card-trend" id="pm25Trend"></div>
+      </div>
+
+      <div class="card card--pm" id="card-pm10">
+        <div class="card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/></svg>
+        </div>
+        <div class="card-body">
+          <div class="card-title">PM<sub>10</sub></div>
+          <div class="card-value" id="pm10Value">—</div>
+          <div class="card-unit">µg/m³</div>
+        </div>
+        <div class="card-trend" id="pm10Trend"></div>
+      </div>
+
+      <!-- Temperature -->
+      <div class="card card--env" id="card-temp">
+        <div class="card-icon card-icon--warm">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 14.76V3.5a2.5 2.5 0 00-5 0v11.26a4.5 4.5 0 105 0z"/></svg>
+        </div>
+        <div class="card-body">
+          <div class="card-title">Temperature</div>
+          <div class="card-value" id="tempValue">—</div>
+          <div class="card-unit">°C</div>
+        </div>
+      </div>
+
+      <!-- Humidity -->
+      <div class="card card--env" id="card-rh">
+        <div class="card-icon card-icon--cool">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.69l5.66 5.66a8 8 0 11-11.31 0z"/></svg>
+        </div>
+        <div class="card-body">
+          <div class="card-title">Humidity</div>
+          <div class="card-value" id="rhValue">—</div>
+          <div class="card-unit">%</div>
+        </div>
+      </div>
+
+      <!-- GPS -->
+      <div class="card card--gps" id="card-gps">
+        <div class="card-icon card-icon--gps">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="10" r="3"/><path d="M12 2a8 8 0 018 8c0 5.25-8 13-8 13S4 15.25 4 10a8 8 0 018-8z"/></svg>
+        </div>
+        <div class="card-body">
+          <div class="card-title">GPS Location</div>
+          <div class="card-value gps-value" id="gpsValue">—</div>
+          <div class="card-unit">
+            <span id="satCount">0</span> satellites
+            <span class="gps-fix-badge" id="gpsFix">NO FIX</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mini sparkline chart -->
+    <div class="chart-card" id="section-overview-chart">
+      <div class="chart-card-header">
+        <h2 class="chart-title">Particulate Matter — Live Trend</h2>
+        <div class="chart-controls">
+          <button class="btn-filter active" id="filter-1h" data-range="1h">1H</button>
+          <button class="btn-filter" id="filter-24h" data-range="24h">24H</button>
+          <button class="btn-filter" id="filter-7d" data-range="7d">7D</button>
+        </div>
+      </div>
+      <div class="chart-wrapper">
+        <canvas id="pmChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Temp/Humidity chart -->
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <h2 class="chart-title">Temperature & Humidity</h2>
+      </div>
+      <div class="chart-wrapper">
+        <canvas id="envChart"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <!-- ──── HISTORY SECTION ──── -->
+  <section class="section" id="section-history">
+    <div class="section-header">
+      <h1 class="section-title">Reading History</h1>
+      <div class="breadcrumb">Overview / History</div>
+    </div>
+    <div class="table-card">
+      <div class="table-controls">
+        <div class="chart-controls">
+          <button class="btn-filter active" data-range="1h" data-table="true">1H</button>
+          <button class="btn-filter" data-range="24h" data-table="true">24H</button>
+          <button class="btn-filter" data-range="7d" data-table="true">7D</button>
+        </div>
+        <span class="table-count" id="tableCount">0 readings</span>
+      </div>
+      <div class="table-wrapper">
+        <table id="readingsTable">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>PM<sub>1.0</sub> µg/m³</th>
+              <th>PM<sub>2.5</sub> µg/m³</th>
+              <th>PM<sub>10</sub> µg/m³</th>
+              <th>AQI</th>
+              <th>Temp °C</th>
+              <th>RH %</th>
+              <th>Lat</th>
+              <th>Lng</th>
+              <th>Sats</th>
+            </tr>
+          </thead>
+          <tbody id="readingsBody">
+            <tr class="table-empty"><td colspan="10">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <!-- Pagination -->
+      <div class="pagination" id="pagination">
+        <button class="btn-page" id="prevPage" disabled>← Prev</button>
+        <span id="pageInfo">Page 1</span>
+        <button class="btn-page" id="nextPage" disabled>Next →</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ──── MAP SECTION ──── -->
+  <section class="section" id="section-map">
+    <div class="section-header">
+      <h1 class="section-title">GPS Map</h1>
+      <div class="breadcrumb">Overview / Map</div>
+    </div>
+    <div class="map-card">
+      <div id="leafletMap"></div>
+      <div class="map-overlay" id="mapOverlay">
+        <div class="map-info" id="mapInfo">Waiting for GPS fix…</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ──── ALERTS SECTION ──── -->
+  <section class="section" id="section-alerts">
+    <div class="section-header">
+      <h1 class="section-title">Alert Configuration</h1>
+      <div class="breadcrumb">Settings / Alerts</div>
+    </div>
+    <div class="alerts-card">
+      <p class="alerts-intro">Set threshold values. An on-screen warning appears when a reading exceeds a limit. Thresholds are saved in browser local storage.</p>
+
+      <div class="alert-form">
+        <div class="alert-row">
+          <label for="alertPm25">PM<sub>2.5</sub> threshold (µg/m³)</label>
+          <input type="number" id="alertPm25" min="0" max="500" placeholder="e.g. 35" />
+        </div>
+        <div class="alert-row">
+          <label for="alertPm10">PM<sub>10</sub> threshold (µg/m³)</label>
+          <input type="number" id="alertPm10" min="0" max="500" placeholder="e.g. 50" />
+        </div>
+        <div class="alert-row">
+          <label for="alertTemp">Temperature threshold (°C)</label>
+          <input type="number" id="alertTemp" min="-40" max="85" placeholder="e.g. 40" />
+        </div>
+        <div class="alert-row">
+          <label for="alertRh">Humidity threshold (%)</label>
+          <input type="number" id="alertRh" min="0" max="100" placeholder="e.g. 80" />
+        </div>
+        <button class="btn-primary" id="saveAlerts">Save Thresholds</button>
+      </div>
+
+      <div class="active-alerts" id="activeAlerts"></div>
+    </div>
+  </section>
+
+</main>
+
+<!-- Toast notification -->
+<div class="toast" id="toast"></div>
+
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-text">Connecting to backend…</div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
