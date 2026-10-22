@@ -8,7 +8,7 @@
 
 // ── Backend URL ──────────────────────────────────────────────────────────────
 // Change this to your deployed backend URL in production.
-const API_BASE = 'http://localhost:3000';
+const API_BASE = 'https://backend-3-klna.onrender.com';
 
 // ── Refresh interval ─────────────────────────────────────────────────────────
 const REFRESH_MS = 5000;
