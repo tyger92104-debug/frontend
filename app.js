@@ -8,7 +8,7 @@
 
 // ── Backend URL ──────────────────────────────────────────────────────────────
 // Change this to your deployed backend URL in production.
-const API_BASE = 'https://backend-3-k1na.onrender.com';
+const API_BASE = 'https://backend-3-klna.onrender.com';
 
 // ── Refresh interval ─────────────────────────────────────────────────────────
 const REFRESH_MS = 5000;
@@ -81,6 +81,8 @@ let envChart = null;
 let leafletMap = null;
 let leafletMarker = null;
 let alerts = {};
+let apiHistory = [];
+               
 
 // ── Alert thresholds ──────────────────────────────────────────────────────────
 function loadAlerts() {
@@ -139,16 +141,14 @@ function showSection(name) {
 
 // ── Device status ─────────────────────────────────────────────────────────────
 async function refreshDeviceStatus() {
-  try {
-    const { ok, data } = await fetchJSON(`${API_BASE}/api/device/status`);
-    if (!ok || !data.success) return;
-    const { online, lastSeen } = data.data;
-    const dot   = $('statusDot');
-    const label = $('statusLabel');
-    dot.className   = 'status-dot ' + (online ? 'online' : 'offline');
-    label.textContent = online ? 'Device Online' : 'Device Offline';
-    $('lastUpdated').textContent = lastSeen ? formatTimestamp(lastSeen) : '—';
-  } catch { /* silently ignore */ }
+  const label = $('statusLabel');
+  const dot = $('statusDot');
+
+  if (label) label.textContent = 'API Data';
+  if (dot) dot.className = 'status-dot online';
+
+  const updated = $('lastUpdated');
+  if (updated) updated.textContent = new Date().toLocaleTimeString();
 }
 
 // ── AQI gauge (canvas arc) ────────────────────────────────────────────────────
@@ -418,64 +418,129 @@ function placeMapMarker(r) {
 }
 
 // ── API calls ─────────────────────────────────────────────────────────────────
+
+const OPEN_METEO_AIR =
+  'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=18.5204&longitude=73.8567&current=pm10,pm2_5,us_aqi&timezone=Asia%2FKolkata';
+
+const OPEN_METEO_WEATHER =
+  'https://api.open-meteo.com/v1/forecast?latitude=18.5204&longitude=73.8567&current=temperature_2m,relative_humidity_2m&timezone=Asia%2FKolkata';
+
 async function fetchLatest() {
-  const { ok, data } = await fetchJSON(`${API_BASE}/api/readings/latest`);
-  if (!ok || !data.success) return null;
-  return data.data;
+  const [airResult, weatherResult] = await Promise.all([
+    fetchJSON(OPEN_METEO_AIR),
+    fetchJSON(OPEN_METEO_WEATHER)
+  ]);
+
+  if (!airResult.ok || !weatherResult.ok) {
+    throw new Error('Open-Meteo request failed');
+  }
+
+  const air = airResult.data.current;
+  const weather = weatherResult.data.current;
+
+  if (!air || !weather) {
+    throw new Error('Current API data unavailable');
+  }
+
+  const reading = {
+    deviceId: 'open-meteo-pune',
+    pm1: null,
+    pm25: air.pm2_5 ?? null,
+    pm10: air.pm10 ?? null,
+    temperature: weather.temperature_2m ?? null,
+    humidity: weather.relative_humidity_2m ?? null,
+    aqi: air.us_aqi ?? null,
+    latitude: 18.5204,
+    longitude: 73.8567,
+    gpsFix: false,
+    satellites: 0,
+    timestamp: new Date().toISOString(),
+    source: 'Open-Meteo modelled data'
+  };
+
+  apiHistory.push(reading);
+  if (apiHistory.length > 500) apiHistory.shift();
+
+  return reading;
 }
 
 async function fetchHistory(range = '24h', page = 1, limit = 100) {
-  const url = `${API_BASE}/api/readings/history?range=${range}&page=${page}&limit=${limit}`;
-  const { ok, data } = await fetchJSON(url);
-  if (!ok || !data.success) return { data: [], pagination: null };
-  return data;
+  const hours = { '1h': 1, '24h': 24, '7d': 168 }[range] || 24;
+  const cutoff = Date.now() - hours * 60 * 60 * 1000;
+
+  const readings = apiHistory
+    .filter(r => new Date(r.timestamp).getTime() >= cutoff)
+    .slice()
+    .reverse();
+
+  const total = readings.length;
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const start = (page - 1) * limit;
+
+  return {
+    data: readings.slice(start, start + limit),
+    pagination: { total, page, limit, pages }
+  };
 }
 
+
 // ── Main refresh cycle ────────────────────────────────────────────────────────
+
 async function refresh() {
   const btn = $('refreshBtn');
   btn.classList.add('spinning');
 
   try {
-    // Latest reading
     const reading = await fetchLatest();
-    if (reading) {
-      if (connectionLost) {
-        connectionLost = false;
-        $('connectionBanner').style.display = 'none';
-        showToast('✅ Backend reconnected');
-      }
-      prevReading   = latestReading;
-      latestReading = reading;
-      updateCards(reading);
-      if (reading.latitude != null) placeMapMarker(reading);
-    } else if (!connectionLost) {
-      // No reading yet – device may have never sent data
-    }
 
-    // History for charts
+    prevReading = latestReading;
+    latestReading = reading;
+    connectionLost = false;
+
+    const banner = $('connectionBanner');
+    if (banner) banner.style.display = 'none';
+
+    updateCards(reading);
+
+    if (leafletMap) placeMapMarker(reading);
+
     const histRes = await fetchHistory(currentRange, 1, 200);
     historyData = histRes.data;
-    if (historyData.length) updateCharts(historyData);
 
-    // Table (separate range)
+    if (historyData.length) {
+      updateCharts(historyData);
+    }
+
     const tableRes = await fetchHistory(tableRange, tablePage, 50);
     renderTable(tableRes.data, tableRes.pagination);
 
-    // Device status
     await refreshDeviceStatus();
 
-  } catch (err) {
-    console.error('[Refresh]', err);
-    if (!connectionLost) {
-      connectionLost = true;
-      $('connectionBanner').style.display = 'flex';
-      showToast('⚠️ Cannot reach backend');
+    const indicator = document.querySelector('.refresh-indicator');
+    if (indicator) {
+      indicator.innerHTML =
+        '<span class="refresh-dot"></span> API Data';
+      indicator.title =
+        'Open-Meteo modelled data, not direct ESP32 measurements';
     }
+  } catch (err) {
+    console.error('[Open-Meteo refresh]', err);
+    connectionLost = true;
+
+    const banner = $('connectionBanner');
+    if (banner) {
+      banner.textContent =
+        'Air-quality API unavailable. Check your internet connection.';
+      banner.style.display = 'flex';
+    }
+
+    showToast('Unable to load API data');
   } finally {
     btn.classList.remove('spinning');
   }
 }
+
+  
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
