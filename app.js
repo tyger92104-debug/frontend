@@ -420,10 +420,10 @@ function placeMapMarker(r) {
 // ── API calls ─────────────────────────────────────────────────────────────────
 
 const OPEN_METEO_AIR =
-  'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=18.5204&longitude=73.8567&current=pm10,pm2_5,us_aqi&timezone=Asia%2FKolkata';
+  'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=18.6069&longitude=73.8752&current=pm10,pm2_5,us_aqi&timezone=Asia%2FKolkata';
 
 const OPEN_METEO_WEATHER =
-  'https://api.open-meteo.com/v1/forecast?latitude=18.5204&longitude=73.8567&current=temperature_2m,relative_humidity_2m&timezone=Asia%2FKolkata';
+  'https://api.open-meteo.com/v1/forecast?latitude=18.6069&longitude=73.8752&current=temperature_2m,relative_humidity_2m&timezone=Asia%2FKolkata';
 
 async function fetchLatest() {
   const [airResult, weatherResult] = await Promise.all([
@@ -450,8 +450,8 @@ async function fetchLatest() {
     temperature: weather.temperature_2m ?? null,
     humidity: weather.relative_humidity_2m ?? null,
     aqi: air.us_aqi ?? null,
-    latitude: 18.5204,
-    longitude: 73.8567,
+    latitude: 18.6069,
+     longitude: 73.8752,
     gpsFix: false,
     satellites: 0,
     timestamp: new Date().toISOString(),
